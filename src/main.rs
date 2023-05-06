@@ -5,8 +5,8 @@ async fn greet(req: HttpRequest) -> impl Responder {
     format!("Hello {}!", &name)
 }
 
-async fn health_check(_req: HttpRequest) -> impl Responder {
-    HttpResponse::Ok().finish()
+async fn health_check() -> impl Responder {
+    HttpResponse::Ok()
 }
 
 #[tokio::main]
