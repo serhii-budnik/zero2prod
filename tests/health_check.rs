@@ -1,6 +1,6 @@
 use std::net::TcpListener;
+use zero2prod::startup::run;
 
-use actix_web::dev::ResourceMap;
 use reqwest;
 
 #[tokio::test]
@@ -23,7 +23,7 @@ fn spawn_app() -> String {
         .expect("Failed to bind random port");
     let port = listener.local_addr().unwrap().port();
 
-    let server = zero2prod::run(listener).expect("Failed to bind address");
+    let server = run(listener).expect("Failed to bind address");
     let _ = tokio::spawn(server);
 
     format!("http://127.0.0.1:{}", port)
