@@ -48,14 +48,7 @@ pub async fn subscribe(
         return HttpResponse::InternalServerError().finish()
     };
 
-    let outcome = email_client
-        .send_email(
-            new_subscriber.email,
-            "Welcome!",
-            "Welcome to our newsletter!",
-            "Welcome to our newsletter!",
-        )
-        .await;
+    let outcome = send_confirmation_email(&email_client, new_subscriber).await;
 
     if outcome.is_err() { return HttpResponse::InternalServerError().finish() };
 
@@ -85,6 +78,35 @@ async fn insert_subscriber(
         tracing::error!("Failed to execute query: {:?}", e);
         e
     })?;
+
+    Ok(())
+}
+
+#[tracing::instrument(
+    name = "Send a confirmation email to a new subscriber",
+    skip(email_client, new_subscriber)
+)]
+pub async fn send_confirmation_email(
+    email_client: &EmailClient,
+    new_subscriber: NewSubscriber,
+) -> Result<(), reqwest::Error> {
+    let confirmation_link = "https://mydomain.com/confirm";
+
+    email_client
+        .send_email(
+            new_subscriber.email,
+            "Welcome!",
+            &format!(
+                "Welcome to our newsletter! <br />\
+                Click <a href=\"{}\">here</a> to confirm your subscription.",
+                confirmation_link
+            ),
+            &format!(
+                "Welcome to our newsletter!\n Visit {} to confirm your subscription.",
+                confirmation_link,
+            ),
+        )
+        .await?;
 
     Ok(())
 }
