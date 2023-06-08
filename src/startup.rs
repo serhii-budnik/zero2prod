@@ -1,10 +1,19 @@
 use actix_web::dev::Server;
 use actix_web::{web, App, HttpServer};
-use tracing_actix_web::TracingLogger;
-use crate::routes::{health_check, subscribe};
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use std::net::TcpListener;
+use tracing_actix_web::TracingLogger;
+
+use crate::configuration::DatabaseSettings;
+use crate::configuration::Settings;
 use crate::email_client::EmailClient;
+use crate::routes::{health_check, subscribe};
+
+pub struct Application {
+    port: u16,
+    server: Server,
+}
 
 pub fn run(
     listener: TcpListener,
@@ -27,4 +36,47 @@ pub fn run(
     .run();
 
     Ok(server)
+}
+
+impl Application {
+    pub async fn build(configuration: Settings) -> Result<Self, std::io::Error> {
+        let connection_pool = get_connection_pool(&configuration.database);
+
+        let sender_email = configuration
+            .email_client
+            .sender()
+            .expect("Failed to parse sender email address.");
+        let timeout = configuration.email_client.timeout();
+        let email_client = EmailClient::new(
+            configuration.email_client.base_url,
+            sender_email,
+            configuration.email_client.authorization_token,
+            configuration.email_client.inbox_id,
+            timeout
+        );
+
+        let address = format!("{}:{}", configuration.application.host, configuration.application.port);
+        let listener = TcpListener::bind(address)?;
+        let port = listener.local_addr().unwrap().port();
+        dbg!(&port);
+        let server = run(listener, connection_pool, email_client)?;
+
+        Ok(Self { port, server })
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    pub async fn run_until_stopped(self) -> Result<(), std::io::Error> {
+        self.server.await
+    }
+}
+
+pub fn get_connection_pool(
+    configuration: &DatabaseSettings
+) -> PgPool {
+    PgPoolOptions::new()
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .connect_lazy_with(configuration.with_db())
 }
