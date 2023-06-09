@@ -13,7 +13,7 @@ pub struct EmailClient {
 #[derive(serde::Serialize)]
 pub struct SendEmailRequest<'a> {
     from: Address<'a>,
-    to: Address<'a>,
+    to: Vec<Address<'a>>,
     subject: &'a str,
     html: &'a str,
     text: &'a str,
@@ -56,7 +56,7 @@ impl EmailClient {
         let url = format!("{}/api/send/{}", self.base_url, self.inbox_id.expose_secret());
         let request_body = SendEmailRequest {
             from: Address { email: self.sender.as_ref() },
-            to: Address { email: recipient.as_ref() },
+            to: vec![Address { email: recipient.as_ref() }],
             subject,
             html: html_content,
             text: text_content,
