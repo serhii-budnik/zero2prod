@@ -1,6 +1,8 @@
 use actix_web::{web, HttpResponse};
 use chrono::Utc;
-use sqlx::PgPool;
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
+use sqlx::{Transaction, Postgres, PgPool};
 use uuid::Uuid;
 
 use crate::domain::NewSubscriber;
@@ -45,46 +47,70 @@ pub async fn subscribe(
         Err(_) => return HttpResponse::BadRequest().finish(),
     };
 
-    if let Err(e) = insert_subscriber(&pool, &new_subscriber).await {
-        tracing::error!("Failed to execute query. {:?}", e);
-        return HttpResponse::InternalServerError().finish()
+    let mut transaction = match pool.begin().await {
+        Ok(transaction) => transaction,
+        Err(_) => return HttpResponse::InternalServerError().finish(),
     };
 
-    let outcome = send_confirmation_email(&email_client, new_subscriber, &base_url.0).await;
+    let subscriber_id = match insert_subscriber(&mut transaction, &new_subscriber).await {
+        Ok(subscriber_id) => subscriber_id,
+        Err(e) => {
+            tracing::error!("Failed to execute query. {:?}", e);
+            return HttpResponse::InternalServerError().finish()
+        },
+    };
+    let subscription_token = generate_subscription_token();
+
+    let outcome = store_token(&mut transaction, subscriber_id, &subscription_token).await;
+
+    if outcome.is_err() { return HttpResponse::InternalServerError().finish() };
+
+    if transaction.commit().await.is_err() {
+        return HttpResponse::InternalServerError().finish();
+    };
+
+    let outcome = send_confirmation_email(
+        &email_client,
+        new_subscriber,
+        &base_url.0,
+        &subscription_token,
+    ).await;
 
     if let Err(e) = outcome { 
         tracing::error!("Failed to send a confirmation email. {:?}", e);
-        return HttpResponse::InternalServerError().finish()
+        return HttpResponse::InternalServerError().finish();
     };
 
     HttpResponse::Ok().finish()
 }
 
 #[tracing::instrument(
-    skip(new_subscriber, pool)
+    skip(new_subscriber, transaction)
 )]
 async fn insert_subscriber(
-    pool: &PgPool,
+    transaction: &mut Transaction<'_, Postgres>,
     new_subscriber: &NewSubscriber,
-) -> Result<(), sqlx::Error> {
+) -> Result<Uuid, sqlx::Error> {
+    let subscriber_id = Uuid::new_v4();
+
     sqlx::query!(
         r#"
         INSERT INTO subscriptions (id, email, name, subscribed_at, status)
         VALUES ($1, $2, $3, $4, 'pending_confirmation')
         "#,
-        Uuid::new_v4(),
+        subscriber_id,
         new_subscriber.email.as_ref(),
         new_subscriber.name.as_ref(),
         Utc::now()
     )
-    .execute(pool)
+    .execute(transaction)
     .await
     .map_err(|e| {
         tracing::error!("Failed to execute query: {:?}", e);
         e
     })?;
 
-    Ok(())
+    Ok(subscriber_id)
 }
 
 #[tracing::instrument(
@@ -95,10 +121,12 @@ pub async fn send_confirmation_email(
     email_client: &EmailClient,
     new_subscriber: NewSubscriber,
     base_url: &str,
+    subscriber_token: &str,
 ) -> Result<(), reqwest::Error> {
     let confirmation_link = format!(
-        "{}/subscriptions/confirm?subscription_token=mytoken",
-        base_url
+        "{}/subscriptions/confirm?subscription_token={}",
+        base_url,
+        subscriber_token
     );
 
     email_client
@@ -116,6 +144,38 @@ pub async fn send_confirmation_email(
             ),
         )
         .await?;
+
+    Ok(())
+}
+
+pub fn generate_subscription_token() -> String {
+    let mut rng = thread_rng();
+
+    std::iter::repeat_with(|| rng.sample(Alphanumeric))
+        .map(char::from)
+        .take(25)
+        .collect()
+}
+
+pub async fn store_token(
+    transaction: &mut Transaction<'_, Postgres>,
+    subscriber_id: Uuid,
+    subscription_token: &str
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+        INSERT INTO subscription_tokens (subscription_token, subscriber_id)
+            VALUES ($1, $2)
+        "#,
+        subscription_token,
+        subscriber_id,
+    )
+    .execute(transaction)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to execute query: {:?}", e);
+        e
+    })?;
 
     Ok(())
 }
