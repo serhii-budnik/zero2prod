@@ -100,7 +100,7 @@ mod tests {
             match result {
                 Ok(body) => { 
                     body.get("from").unwrap().get("email").is_some()
-                        && body.get("to").unwrap().get("email").is_some()
+                        && body.get("to").unwrap()[0].get("email").is_some()
                         && body.get("subject").is_some()
                         && body.get("html").is_some()
                         && body.get("text").is_some()
