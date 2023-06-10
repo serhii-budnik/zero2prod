@@ -63,7 +63,13 @@ pub async fn get_subscriber_id_from_token(
     subscription_token: &str,
 ) -> Result<Option<Uuid>, sqlx::Error> {
     let result = sqlx::query!(
-        r#"SELECT subscriber_id FROM subscription_tokens WHERE subscription_token = $1"#,
+        r#"
+        SELECT subscriber_id FROM subscription_tokens
+            INNER JOIN subscriptions
+                ON subscription_tokens.subscriber_id = subscriptions.id
+            WHERE subscriptions.status = 'pending_confirmation'
+                AND subscription_token = $1
+        "#,
         subscription_token,
     )
     .fetch_optional(pool)

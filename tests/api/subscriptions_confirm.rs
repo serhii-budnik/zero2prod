@@ -4,7 +4,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, ResponseTemplate};
 
 #[tokio::test]
-async fn confirmations_without_woken_are_rejected_with_a_400() {
+async fn confirmations_without_token_are_rejected_with_a_400() {
     let app = spawn_app().await;
 
     let response = reqwest::get(&format!("{}/subscriptions/confirm", app.address))
@@ -63,4 +63,27 @@ async fn clicking_on_the_confirmation_link_confirms_a_subscriber() {
     assert_eq!(saved.email, "ursula_le_guin@gmail.com");
     assert_eq!(saved.name, "le guin");
     assert_eq!(saved.status, "confirmed");
+}
+
+#[tokio::test]
+async fn clicking_on_the_confirmation_link_returns_401_when_user_is_already_confirmed() {
+    let app = spawn_app().await;
+    let body = "name=le%20guin&email=ursula_le_guin%40gmail.com";
+
+    Mock::given(path(format!("/api/send/{}", app.inbox_id)))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&app.email_server)
+        .await;
+
+
+    app.post_subscriptions(body.into()).await;
+    let email_request = &app.email_server.received_requests().await.unwrap()[0];
+
+    let confirmation_links = app.get_confirmation_links(&email_request);
+
+    reqwest::get(confirmation_links.html.clone()).await.unwrap().error_for_status().unwrap();
+    let second_response = reqwest::get(confirmation_links.html).await.unwrap().error_for_status().err().unwrap();
+
+    assert_eq!(second_response.status().unwrap(), reqwest::StatusCode::UNAUTHORIZED);
 }
