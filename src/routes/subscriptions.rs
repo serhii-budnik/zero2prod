@@ -52,13 +52,26 @@ pub async fn subscribe(
         Err(_) => return HttpResponse::InternalServerError().finish(),
     };
 
-    let subscriber_id = match insert_subscriber(&mut transaction, &new_subscriber).await {
-        Ok(subscriber_id) => subscriber_id,
-        Err(e) => {
-            tracing::error!("Failed to execute query. {:?}", e);
-            return HttpResponse::InternalServerError().finish()
+    let subscriber_id = match find_subscriber_id(&mut transaction, &new_subscriber).await {
+        Some(sub) => {
+            if sub.1 == "confirmed" {
+                return HttpResponse::UnprocessableEntity()
+                    .body("Email is already confirmed.");
+            };
+
+            sub.0
+        },
+        None => {
+            match insert_subscriber(&mut transaction, &new_subscriber).await {
+                Ok(subscriber_id) => subscriber_id,
+                Err(e) => {
+                    tracing::error!("Failed to execute query. {:?}", e);
+                    return HttpResponse::InternalServerError().finish();
+                }
+            }
         },
     };
+
     let subscription_token = generate_subscription_token();
 
     let outcome = store_token(&mut transaction, subscriber_id, &subscription_token).await;
@@ -82,6 +95,28 @@ pub async fn subscribe(
     };
 
     HttpResponse::Ok().finish()
+}
+
+#[tracing::instrument(
+    skip(new_subscriber, transaction)
+)]
+async fn find_subscriber_id(
+    transaction: &mut Transaction<'_, Postgres>,
+    new_subscriber: &NewSubscriber,
+)
+-> Option<(Uuid, String)> {
+    let outcome = sqlx::query!(
+        r#"SELECT id, status FROM subscriptions WHERE email = $1"#,
+        new_subscriber.email.as_ref(),
+    )
+    .fetch_optional(transaction)
+    .await
+    .unwrap();
+
+    match outcome {
+        Some(sub) => Some((sub.id, sub.status)),
+        None => None,
+    }
 }
 
 #[tracing::instrument(
