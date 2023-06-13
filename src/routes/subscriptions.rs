@@ -103,13 +103,13 @@ async fn find_subscriber_id(
     new_subscriber: &NewSubscriber,
 )
 -> Result<Option<Subscriber>, sqlx::Error> {
-    let outcome = sqlx::query!(
+    let outcome = sqlx::query_as!(
+        Subscriber,
         r#"SELECT id, status FROM subscriptions WHERE email = $1"#,
         new_subscriber.email.as_ref(),
     )
     .fetch_optional(transaction)
-    .await?
-    .map(|sub| Subscriber { id: sub.id, status: sub.status });
+    .await?;
 
     Ok(outcome)
 }
