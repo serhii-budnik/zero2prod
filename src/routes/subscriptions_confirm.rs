@@ -1,6 +1,9 @@
 use actix_web::{HttpResponse, web};
+use anyhow::Context;
 use sqlx::PgPool;
 use uuid::Uuid;
+
+use crate::routes::helpers::ApiError;
 
 #[derive(serde::Deserialize)]
 pub struct Parameters {
@@ -14,22 +17,18 @@ pub struct Parameters {
 pub async fn confirm(
     parameters: web::Query<Parameters>,
     pool: web::Data<PgPool>,
-) -> HttpResponse {
-    let subcriber_id_option = match get_subscriber_id_from_token(&pool, &parameters.subscription_token).await {
-        Ok(option) => option,
-        Err(_) => return HttpResponse::InternalServerError().finish(),
-    };
+) -> Result<HttpResponse, ApiError> {
+    let subcriber_id_option = get_subscriber_id_from_token(&pool, &parameters.subscription_token)
+        .await
+        .context("Failed to retrieve a subscriber")?;
 
-    let subscriber_id = match subcriber_id_option {
-        Some(subscriber_id) => subscriber_id,
-        None => return HttpResponse::Unauthorized().finish(),
-    };
+    let subscriber_id = subcriber_id_option.ok_or(ApiError::AuthorizationError)?;
 
-    if confirm_subscriber(&pool, &subscriber_id).await.is_err() {
-        return HttpResponse::InternalServerError().finish();
-    };
+    confirm_subscriber(&pool, &subscriber_id)
+        .await
+        .context("Failed to confirm subscriber")?;
         
-    HttpResponse::Ok().finish()
+    Ok(HttpResponse::Ok().finish())
 }
 
 #[tracing::instrument(
@@ -45,11 +44,7 @@ pub async fn confirm_subscriber(
         subscriber_id,
     )
     .execute(pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to execute query: {:?}", e);
-        e
-    })?;
+    .await?;
 
     Ok(())
 }
@@ -73,11 +68,7 @@ pub async fn get_subscriber_id_from_token(
         subscription_token,
     )
     .fetch_optional(pool)
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to execute query: {:?}", e);
-        e
-    })?;
+    .await?;
 
     Ok(result.map(|r| r.subscriber_id))
 }
