@@ -5,8 +5,9 @@ use crate::routes::helpers::ApiError;
 use actix_web::http::header::HeaderMap;
 use actix_web::{web, HttpResponse, HttpRequest};
 use anyhow::Context;
-use secrecy::Secret;
+use secrecy::{Secret, ExposeSecret};
 use sqlx::PgPool;
+use uuid::Uuid;
 
 #[derive(serde::Deserialize)]
 pub struct BodyData {
@@ -24,14 +25,31 @@ struct ConfirmedSubscriber {
     email: SubscriberEmail,
 }
 
+#[tracing::instrument(
+    name = "Publish a newsletter issue"
+    skip(body, pool, email_client, request),
+    fields(username=tracing::field::Empty, user_is=tracing::field::Empty)
+)]
 pub async fn publish_newsletter(
     body: web::Json<BodyData>,
     pool: web::Data<PgPool>,
     email_client: web::Data<EmailClient>,
     request: HttpRequest,
 ) -> Result<HttpResponse, ApiError> {
-    let _credentials = basic_authentication(request.headers())
+    let credentials = basic_authentication(request.headers())
         .or(Err(ApiError::AuthBasicError))?;
+
+    tracing::Span::current().record(
+        "username",
+        &tracing::field::display(&credentials.username),
+    );
+
+    let user_id = validate_credentials(credentials, &pool).await?;
+
+    tracing::Span::current().record(
+        "user_id",
+        &tracing::field::display(&user_id),
+    );
 
     let subscribers = get_confirmed_subscribers(&pool).await?;
 
@@ -123,4 +141,26 @@ fn basic_authentication(headers: &HeaderMap) -> Result<Credentials, anyhow::Erro
         username,
         password: Secret::new(password),
     })
+}
+
+async fn validate_credentials(
+    credentials: Credentials,
+    pool: &PgPool,
+) -> Result<Uuid, ApiError> {
+    // TODO: password should be hashed. I think we gonna fix it later.
+    let user_id = sqlx::query!(
+        r#"
+        SELECT id FROM users WHERE username = $1 AND password = $2
+        "#,
+        credentials.username,
+        credentials.password.expose_secret(),
+    )
+    .fetch_optional(pool)
+    .await
+    .context("Failed to perform a query to validate auth credentials.")
+    .map_err(ApiError::UnexpectedError)?;
+
+    user_id
+        .map(|row| row.id)
+        .ok_or(ApiError::AuthBasicError)
 }
