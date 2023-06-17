@@ -1,3 +1,5 @@
+use argon2::password_hash::SaltString;
+use argon2::{Argon2, PasswordHasher};
 use once_cell::sync::Lazy;
 use secrecy::{Secret, ExposeSecret};
 use sqlx::{Connection, Executor, PgConnection, PgPool};
@@ -66,7 +68,7 @@ impl TestApp {
     }
 
     pub async fn post_newsletters(&self, body: serde_json::Value) -> reqwest::Response {
-        let (username, password) = self.add_and_get_test_user().await;
+        let (username, password) = self.add_test_user().await;
 
         reqwest::Client::new()
             .post(&format!("{}/newsletters", &self.address))
@@ -77,31 +79,28 @@ impl TestApp {
             .expect("Failed to execute request.")
     }
 
+    async fn add_test_user(&self) -> (String, String) {
+        let username = Uuid::new_v4().to_string();
+        let password = Uuid::new_v4().to_string();
 
-    async fn add_test_user(&self) {
+        let salt = SaltString::generate(&mut rand::thread_rng());
+
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &salt)
+            .unwrap()
+            .to_string();
+
         sqlx::query!(
-            "INSERT INTO users (id, username, password) VALUES ($1, $2, $3)",
+            "INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)",
             Uuid::new_v4(),
-            Uuid::new_v4().to_string(),
-            Uuid::new_v4().to_string(),
+            &username,
+            password_hash,
         )
         .execute(&self.db_pool)
         .await
         .expect("Failed to create test user.");
-    }
 
-    pub async fn get_test_user(&self) -> (String, String) {
-        let row = sqlx::query!("SELECT username, password FROM users LIMIT 1")
-            .fetch_one(&self.db_pool)
-            .await
-            .expect("Failed to get test user");
-
-        (row.username, row.password)
-    }
-
-    pub async fn add_and_get_test_user(&self) -> (String, String) {
-        self.add_test_user().await;
-        self.get_test_user().await
+        (username, password)
     }
 }
 

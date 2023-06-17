@@ -5,6 +5,7 @@ use crate::routes::helpers::ApiError;
 use actix_web::http::header::HeaderMap;
 use actix_web::{web, HttpResponse, HttpRequest};
 use anyhow::Context;
+use argon2::{PasswordHash, PasswordVerifier, Argon2};
 use secrecy::{Secret, ExposeSecret};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -147,20 +148,33 @@ async fn validate_credentials(
     credentials: Credentials,
     pool: &PgPool,
 ) -> Result<Uuid, ApiError> {
-    // TODO: password should be hashed. I think we gonna fix it later.
-    let user_id = sqlx::query!(
+    let row = sqlx::query!(
         r#"
-        SELECT id FROM users WHERE username = $1 AND password = $2
+        SELECT id, password_hash FROM users WHERE username = $1
         "#,
         credentials.username,
-        credentials.password.expose_secret(),
     )
     .fetch_optional(pool)
     .await
     .context("Failed to perform a query to validate auth credentials.")
     .map_err(ApiError::UnexpectedError)?;
 
-    user_id
-        .map(|row| row.id)
-        .ok_or(ApiError::AuthBasicError)
+    let (expected_password_hash, user_id) = match row {
+        Some(row) => (row.password_hash, row.id),
+        None => return Err(ApiError::AuthBasicError),
+    };
+
+    let expected_password_hash = PasswordHash::new(&expected_password_hash)
+        .context("Failed to parse hash in PHC string format.")
+        .map_err(ApiError::UnexpectedError)?;
+
+    Argon2::default()
+        .verify_password(
+            credentials.password.expose_secret().as_bytes(),
+            &expected_password_hash,
+        )
+        .context("Invalid password.")
+        .or(Err(ApiError::AuthBasicError))?;
+
+    Ok(user_id)
 }
