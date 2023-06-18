@@ -1,5 +1,5 @@
 use argon2::password_hash::SaltString;
-use argon2::{Argon2, PasswordHasher};
+use argon2::{Algorithm, Argon2, Params, PasswordHasher, Version as Argon2Version};
 use once_cell::sync::Lazy;
 use secrecy::{Secret, ExposeSecret};
 use sqlx::{Connection, Executor, PgConnection, PgPool};
@@ -79,16 +79,20 @@ impl TestApp {
             .expect("Failed to execute request.")
     }
 
-    async fn add_test_user(&self) -> (String, String) {
+    pub async fn add_test_user(&self) -> (String, String) {
         let username = Uuid::new_v4().to_string();
         let password = Uuid::new_v4().to_string();
 
         let salt = SaltString::generate(&mut rand::thread_rng());
 
-        let password_hash = Argon2::default()
-            .hash_password(password.as_bytes(), &salt)
-            .unwrap()
-            .to_string();
+        let password_hash = Argon2::new(
+            Algorithm::Argon2id,
+            Argon2Version::V0x13,
+            Params::new(15000, 2, 1, None).unwrap(),
+        )
+        .hash_password(password.as_bytes(), &salt)
+        .unwrap()
+        .to_string();
 
         sqlx::query!(
             "INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)",

@@ -1,6 +1,7 @@
 use crate::domain::SubscriberEmail;
 use crate::email_client::EmailClient;
 use crate::routes::helpers::ApiError;
+use crate::telemetry::spawn_blocking_with_tracing;
 
 use actix_web::http::header::HeaderMap;
 use actix_web::{web, HttpResponse, HttpRequest};
@@ -144,37 +145,68 @@ fn basic_authentication(headers: &HeaderMap) -> Result<Credentials, anyhow::Erro
     })
 }
 
+#[tracing::instrument(name = "Get stored credentials", skip(username, pool))]
+async fn get_stored_credentials(
+    username: &str,
+    pool: &PgPool,
+) -> Result<Option<(Option<Uuid>, Secret<String>)>, anyhow::Error> {
+    let row = sqlx::query!(
+        r#"SELECT id, password_hash FROM users WHERE username = $1"#,
+        username,
+    )
+    .fetch_optional(pool)
+    .await
+    .context("Failed to perform a query to validate auth credentials.")?
+    .map(|row| (Some(row.id), Secret::new(row.password_hash)));
+
+    Ok(row)
+}
+
+#[tracing::instrument(
+    name = "Verify password hash",
+    skip(expected_password_hash, password_candidate),
+)]
+fn verify_password_hash(
+    expected_password_hash: Secret<String>,
+    password_candidate: Secret<String>,
+) -> Result<(), ApiError> {
+    let expected_password_hash = PasswordHash::new(
+        expected_password_hash.expose_secret()
+    )
+    .context("Failed to parse hash in PHC string format.")
+    .map_err(ApiError::UnexpectedError)?;
+
+    let res = Argon2::default()
+        .verify_password(
+            password_candidate.expose_secret().as_bytes(),
+            &expected_password_hash,
+        );
+    
+    res.or(Err(ApiError::AuthBasicError))
+}
+
 async fn validate_credentials(
     credentials: Credentials,
     pool: &PgPool,
 ) -> Result<Uuid, ApiError> {
-    let row = sqlx::query!(
-        r#"
-        SELECT id, password_hash FROM users WHERE username = $1
-        "#,
-        credentials.username,
-    )
-    .fetch_optional(pool)
-    .await
-    .context("Failed to perform a query to validate auth credentials.")
-    .map_err(ApiError::UnexpectedError)?;
-
-    let (expected_password_hash, user_id) = match row {
-        Some(row) => (row.password_hash, row.id),
-        None => return Err(ApiError::AuthBasicError),
+    let (user_id, expected_password_hash) = match get_stored_credentials(&credentials.username, pool).await? {
+        Some(row) => row,
+        None => (None, Secret::new(
+            "$argon2id$v=19$m=15000,t=2,p=1$\
+            HdFWisuoULgZIDF0OKW7EA$IfkXo59yJ7KLk5BqakAs4ecioYMfY14xAznmBPanMns".to_string()
+        )),
     };
 
-    let expected_password_hash = PasswordHash::new(&expected_password_hash)
-        .context("Failed to parse hash in PHC string format.")
-        .map_err(ApiError::UnexpectedError)?;
+    spawn_blocking_with_tracing(move || {
+        verify_password_hash(expected_password_hash, credentials.password)
+    })
+    .await
+    .context("Failed to spawn blocking task.")
+    .map_err(ApiError::UnexpectedError)??;
 
-    Argon2::default()
-        .verify_password(
-            credentials.password.expose_secret().as_bytes(),
-            &expected_password_hash,
-        )
-        .context("Invalid password.")
-        .or(Err(ApiError::AuthBasicError))?;
-
-    Ok(user_id)
+    // This is only set to Some if we found credentials in the store
+    // So, even if the default password ends up matching (somehow)
+    // the provided password, we never authenticate a non-existing user.
+    // It is needed to be `side-channel attack` resistant.
+    user_id.ok_or(ApiError::AuthBasicError)
 }
