@@ -19,6 +19,7 @@ pub async fn validate_credentials(
     let (user_id, expected_password_hash) = match get_stored_credentials(&credentials.username, pool).await? {
         Some(row) => row,
         None => (None, Secret::new(
+            // TODO: it would be nice not to have it hardcoded not to forget to update it in the future.
             "$argon2id$v=19$m=15000,t=2,p=1$\
             HdFWisuoULgZIDF0OKW7EA$IfkXo59yJ7KLk5BqakAs4ecioYMfY14xAznmBPanMns".to_string()
         )),

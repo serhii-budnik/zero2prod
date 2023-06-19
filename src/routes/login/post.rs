@@ -29,17 +29,31 @@ pub async fn login(
         &tracing::field::display(&creds.username),
     );
 
-    let user_id = validate_credentials(creds, &pool).await?;
+    match validate_credentials(creds, &pool).await { 
+        Ok(user_id) => {
+            tracing::Span::current().record(
+                "user_id",
+                &tracing::field::display(&user_id),
+            );
 
-    tracing::Span::current().record(
-        "user_id",
-        &tracing::field::display(&user_id),
-    );
-
-    Ok(
-        HttpResponse::SeeOther()
-            .insert_header((LOCATION, "/"))
-            .finish()
-    )
+            Ok(
+                HttpResponse::SeeOther()
+                    .insert_header((LOCATION, "/"))
+                    .finish()
+            )
+        },
+        Err(e) => {
+            match e {
+                ApiError::AuthBasicError => {
+                    Ok(
+                        HttpResponse::SeeOther()
+                            .insert_header((LOCATION, "/login"))
+                            .finish()
+                    )
+                },
+                _ => Err(ApiError::UnexpectedError(anyhow::anyhow!("Oops! Something went wrong."))),
+            }
+        }
+    }
 }
 
