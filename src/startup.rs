@@ -1,5 +1,8 @@
+use actix_web::cookie::Key;
 use actix_web::dev::Server;
 use actix_web::{web, App, HttpServer};
+use actix_web_flash_messages::{FlashMessagesFramework, storage::CookieMessageStore};
+use secrecy::{Secret, ExposeSecret};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::net::TcpListener;
@@ -22,14 +25,21 @@ pub fn run(
     db_pool: PgPool,
     email_client: EmailClient,
     base_url: String,
+    hmac_secret: Secret<String>,
 ) -> Result<Server, std::io::Error> {
     let db_pool = web::Data::new(db_pool);
     let email_client = web::Data::new(email_client);
     let base_url = web::Data::new(ApplicationBaseUrl(base_url));
 
+    let message_store = CookieMessageStore::builder(
+        Key::from(hmac_secret.expose_secret().as_bytes()),
+    ).build();
+    let message_framework = FlashMessagesFramework::builder(message_store).build();
+
     let server = HttpServer::new(move || { 
         App::new()
             .wrap(TracingLogger::default())
+            .wrap(message_framework.clone())
             .route("/", web::get().to(home))
             .route("/health_check", web::get().to(health_check))
             .route("/login", web::get().to(login_form))
@@ -63,6 +73,7 @@ impl Application {
             configuration.email_client.inbox_id,
             timeout
         );
+        let hmac_secret = configuration.application.hmac_secret;
 
         let address = format!("{}:{}", configuration.application.host, configuration.application.port);
         let listener = TcpListener::bind(address)?;
@@ -72,7 +83,8 @@ impl Application {
             listener,
             connection_pool,
             email_client,
-            configuration.application.base_url
+            configuration.application.base_url,
+            hmac_secret
         )?;
 
         Ok(Self { port, server })

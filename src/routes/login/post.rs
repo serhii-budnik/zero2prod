@@ -1,6 +1,7 @@
 use crate::authentication::{validate_credentials, Credentials};
 use crate::routes::helpers::ApiError;
 
+use actix_web_flash_messages::FlashMessage;
 use actix_web::http::header::LOCATION;
 use actix_web::{web, HttpResponse};
 use secrecy::Secret;
@@ -45,6 +46,8 @@ pub async fn login(
         Err(e) => {
             match e {
                 ApiError::AuthBasicError => {
+                    FlashMessage::error("Authentication failed").send();
+
                     Ok(
                         HttpResponse::SeeOther()
                             .insert_header((LOCATION, "/login"))

@@ -16,6 +16,7 @@ pub struct TestApp {
     pub email_server: MockServer,
     pub inbox_id: String,
     pub port: u16,
+    pub api_client: reqwest::Client,
 }
 
 pub struct ConfirmationLinks {
@@ -25,7 +26,7 @@ pub struct ConfirmationLinks {
 
 impl TestApp {
     pub async fn post_subscriptions(&self, body: String) -> reqwest::Response {
-        reqwest::Client::new()
+        self.api_client
             .post(&format!("{}/subscriptions", &self.address))
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(body)
@@ -70,7 +71,7 @@ impl TestApp {
     pub async fn post_newsletters(&self, body: serde_json::Value) -> reqwest::Response {
         let (username, password) = self.add_test_user().await;
 
-        reqwest::Client::new()
+        self.api_client
             .post(&format!("{}/newsletters", &self.address))
             .basic_auth(username, Some(password))
             .json(&body)
@@ -112,15 +113,23 @@ impl TestApp {
         Body: serde::Serialize,
     {
 
-        reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .unwrap()
+        self.api_client
             .post(&format!("{}/login", &self.address))
             .form(body)
             .send()
             .await
             .expect("Failed to execute request.")
+    }
+
+    pub async fn get_login_html(&self) -> String {
+        self.api_client
+            .get(&format!("{}/login", &self.address))
+            .send()
+            .await
+            .expect("Failed to execute request.")
+            .text()
+            .await
+            .unwrap()
     }
 }
 
@@ -180,12 +189,19 @@ pub async fn spawn_app() -> TestApp {
     let application_port = application.port();
     let _ = tokio::spawn(application.run_until_stopped());
 
+    let api_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .cookie_store(true)
+        .build()
+        .unwrap();
+
     TestApp { 
         address,
-        port: application_port,
+        api_client,
         db_pool: get_connection_pool(&configuration.database),
         email_server,
         inbox_id: configuration.email_client.inbox_id.expose_secret().clone(),
+        port: application_port,
     }
 }
 
