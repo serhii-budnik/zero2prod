@@ -12,7 +12,16 @@ use tracing_actix_web::TracingLogger;
 use crate::configuration::DatabaseSettings;
 use crate::configuration::Settings;
 use crate::email_client::EmailClient;
-use crate::routes::{health_check, home, subscribe, confirm, publish_newsletter, login, login_form};
+use crate::routes::{
+    admin_dashboard,
+    confirm,
+    health_check,
+    home,
+    login,
+    login_form,
+    publish_newsletter,
+    subscribe,
+};
 
 pub struct Application {
     port: u16,
@@ -46,6 +55,7 @@ pub async fn run(
             .wrap(SessionMiddleware::new(redis_store.clone(), secret_key.clone()))
             .wrap(TracingLogger::default())
             .route("/", web::get().to(home))
+            .route("/admin/dashboard", web::get().to(admin_dashboard))
             .route("/health_check", web::get().to(health_check))
             .route("/login", web::get().to(login_form))
             .route("/login", web::post().to(login))

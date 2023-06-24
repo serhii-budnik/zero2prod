@@ -39,7 +39,7 @@ pub async fn login(
 
             Ok(
                 HttpResponse::SeeOther()
-                    .insert_header((LOCATION, "/"))
+                    .insert_header((LOCATION, "/admin/dashboard"))
                     .finish()
             )
         },
