@@ -1,7 +1,7 @@
 use crate::routes::helpers::ApiError;
 use crate::session_state::TypedSession;
 
-use actix_web::http::header::ContentType;
+use actix_web::http::header::{LOCATION, ContentType};
 use actix_web::{web, HttpResponse};
 use anyhow::Context;
 use sqlx::PgPool;
@@ -16,7 +16,7 @@ pub async fn admin_dashboard(
         .map_err(|_| ApiError::UnexpectedError(anyhow::anyhow!("Err")))? {
        get_username(user_id, &pool).await?
     } else {
-        todo!()
+        return Ok(HttpResponse::SeeOther().insert_header((LOCATION, "/login")).finish())
     };
 
     Ok(
