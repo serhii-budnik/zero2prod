@@ -39,7 +39,7 @@ impl ResponseError for ApiError {
 pub enum ApiError {
     #[error("{0}")]
     ValidationError(String),
-    #[error("Unauthorized")]
+    #[error("Authentication failed")]
     AuthorizationError, // in book we add here #[source] anyhow::Error check later if we really need it
     #[error("Unauthorized")]
     AuthBasicError,
