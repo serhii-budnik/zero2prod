@@ -9,11 +9,14 @@ use sqlx::postgres::PgPoolOptions;
 use std::net::TcpListener;
 use tracing_actix_web::TracingLogger;
 
+use crate::authentication::middleware::RejectAnonymousUsers;
 use crate::configuration::DatabaseSettings;
 use crate::configuration::Settings;
 use crate::email_client::EmailClient;
 use crate::routes::{
     admin_dashboard,
+    change_password,
+    change_password_form,
     confirm,
     health_check,
     home,
@@ -55,7 +58,13 @@ pub async fn run(
             .wrap(SessionMiddleware::new(redis_store.clone(), secret_key.clone()))
             .wrap(TracingLogger::default())
             .route("/", web::get().to(home))
-            .route("/admin/dashboard", web::get().to(admin_dashboard))
+            .service(
+                web::scope("/admin")
+                    .wrap(RejectAnonymousUsers)
+                    .route("/dashboard", web::get().to(admin_dashboard))
+                    .route("/password", web::get().to(change_password_form))
+                    .route("/password", web::post().to(change_password))
+            )
             .route("/health_check", web::get().to(health_check))
             .route("/login", web::get().to(login_form))
             .route("/login", web::post().to(login))

@@ -1,23 +1,17 @@
 use crate::routes::helpers::ApiError;
-use crate::session_state::TypedSession;
+use crate::authentication::middleware::CurrentUserId;
 
-use actix_web::http::header::{LOCATION, ContentType};
+use actix_web::http::header::ContentType;
 use actix_web::{web, HttpResponse};
 use anyhow::Context;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 pub async fn admin_dashboard(
-    session: TypedSession,
     pool: web::Data<PgPool>,
+    current_user_id: web::ReqData<CurrentUserId>,
 ) -> Result<HttpResponse, ApiError> {
-    let username = if let Some(user_id) = session
-        .get_user_id()
-        .map_err(|_| ApiError::UnexpectedError(anyhow::anyhow!("Err")))? {
-       get_username(user_id, &pool).await?
-    } else {
-        return Ok(HttpResponse::SeeOther().insert_header((LOCATION, "/login")).finish())
-    };
+    let username = get_username(current_user_id.0, &pool).await?;
 
     Ok(
         HttpResponse::Ok()

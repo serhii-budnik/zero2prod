@@ -3304,6 +3304,8 @@ dependencies = [
  "claim",
  "config",
  "fake",
+ "futures",
+ "futures-util",
  "hmac",
  "linkify",
  "once_cell",
