@@ -1,12 +1,12 @@
 use actix_web::dev::{forward_ready, Service, ServiceRequest, Transform, ServiceResponse};
 use actix_web::error::InternalError;
-use actix_web::http::header::LOCATION;
-use actix_web::{FromRequest, Error, HttpResponse, HttpMessage};
+use actix_web::{FromRequest, Error, HttpMessage};
 use futures_util::future::LocalBoxFuture;
 use std::future::{ready, Ready};
 
 use crate::routes::helpers::ApiError;
 use crate::session_state::TypedSession;
+use crate::utils::see_other;
 
 #[derive(Debug, Copy, Clone)]
 pub struct CurrentUserId(pub uuid::Uuid);
@@ -91,9 +91,7 @@ fn get_current_user_id(session: Result<TypedSession, Error>) -> Result<CurrentUs
 }
 
 fn login_redirect(e: ApiError) -> InternalError<ApiError> { 
-    let response = HttpResponse::SeeOther()
-        .insert_header((LOCATION, "/login"))
-        .finish();
+    let response = see_other("/login");
 
     InternalError::from_response(e, response)
 }
