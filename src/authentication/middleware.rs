@@ -64,22 +64,9 @@ where
 
         let session = futures::executor::block_on(session);
 
-        let user_id = match session { 
-            Ok(sess) => sess.get_user_id(),
-            Err(_) => { 
-                return Box::pin(async { 
-                    Err(login_redirect(ApiError::UnexpectedError(anyhow::anyhow!("Failed to get session"))).into())
-                })
-            }
-        };
-
-        match user_id {
-            Ok(id) => req.extensions_mut().insert(CurrentUserId(id.unwrap())),
-            Err(_) => {
-                return Box::pin(async move { 
-                    Err(login_redirect(ApiError::UnexpectedError(anyhow::anyhow!("User is not authorized"))).into())
-                });
-            }
+        match get_current_user_id(session) {
+            Ok(current_user_id) => req.extensions_mut().insert(current_user_id),
+            Err(err) => return Box::pin(async { Err(login_redirect(err).into()) }),
         };
 
         let fut = self.service.call(req);
@@ -89,6 +76,18 @@ where
             Ok(res)
         })
     }
+}
+
+fn get_current_user_id(session: Result<TypedSession, Error>) -> Result<CurrentUserId, ApiError> {
+    let user_id = session
+        .map_err(|_| ApiError::UnexpectedError(anyhow::anyhow!("Failed to get session")))?
+        .get_user_id();
+
+    let user_id = user_id
+        .map_err(|_| ApiError::UnexpectedError(anyhow::anyhow!("User is not authorized")))?
+        .ok_or_else(|| ApiError::UnexpectedError(anyhow::anyhow!("User is not authorized")))?;
+
+    Ok(CurrentUserId(user_id))
 }
 
 fn login_redirect(e: ApiError) -> InternalError<ApiError> { 
