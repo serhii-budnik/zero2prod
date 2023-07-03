@@ -4,6 +4,7 @@ use unicode_segmentation::UnicodeSegmentation;
 pub struct NewPassword(Secret<String>);
 
 impl NewPassword { 
+    // TODO: add checks for special chars and numbers
     pub fn parse(new_password: Secret<String>, new_password_check: Secret<String>) -> Result<Self, String> {
         if new_password.expose_secret() != new_password_check.expose_secret() {
             return Err("You entered two different new passwords - the field values must match.".into());
