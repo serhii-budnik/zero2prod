@@ -1,11 +1,10 @@
-use argon2::password_hash::SaltString;
-use argon2::{Algorithm, Argon2, Params, PasswordHasher, Version as Argon2Version};
 use once_cell::sync::Lazy;
 use secrecy::{Secret, ExposeSecret};
 use sqlx::{Connection, Executor, PgConnection, PgPool};
 use uuid::Uuid;
 use wiremock::MockServer;
 
+use zero2prod::authentication::compute_password_hash;
 use zero2prod::configuration::{get_configuration, DatabaseSettings};
 use zero2prod::startup::{Application, get_connection_pool};
 use zero2prod::telemetry::{get_subscriber, init_subscriber};
@@ -84,22 +83,13 @@ impl TestApp {
         let username = Uuid::new_v4().to_string();
         let password = Uuid::new_v4().to_string();
 
-        let salt = SaltString::generate(&mut rand::thread_rng());
-
-        let password_hash = Argon2::new(
-            Algorithm::Argon2id,
-            Argon2Version::V0x13,
-            Params::new(15000, 2, 1, None).unwrap(),
-        )
-        .hash_password(password.as_bytes(), &salt)
-        .unwrap()
-        .to_string();
+        let password_hash = compute_password_hash(Secret::new(password.clone())).unwrap();
 
         sqlx::query!(
             "INSERT INTO users (id, username, password_hash) VALUES ($1, $2, $3)",
             Uuid::new_v4(),
             &username,
-            password_hash,
+            password_hash.expose_secret(),
         )
         .execute(&self.db_pool)
         .await

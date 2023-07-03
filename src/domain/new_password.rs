@@ -1,7 +1,7 @@
 use secrecy::{ExposeSecret, Secret};
 use unicode_segmentation::UnicodeSegmentation;
 
-pub struct NewPassword(Secret<String>);
+pub struct NewPassword(pub Secret<String>);
 
 impl NewPassword { 
     // TODO: add checks for special chars and numbers

@@ -1,5 +1,5 @@
 use crate::authentication::middleware::CurrentUserId;
-use crate::authentication::{Credentials, validate_credentials};
+use crate::authentication::{self, Credentials, validate_credentials};
 use crate::domain::{NewPassword, ResetPassword, CurrentPassword};
 use crate::routes::admin::dashboard::get_username;
 use crate::routes::helpers::ApiError;
@@ -59,5 +59,10 @@ pub async fn change_password(
         }
     }
 
-    todo!()
+    authentication::change_password(current_user_id.0, reset_password.new_password.0, &pool)
+        .await
+        .map_err(ApiError::UnexpectedError)?;
+
+    FlashMessage::info("Your password has been changed.").send();
+    Ok(see_other("/admin/password"))
 }
