@@ -14,16 +14,19 @@ use crate::configuration::DatabaseSettings;
 use crate::configuration::Settings;
 use crate::email_client::EmailClient;
 use crate::routes::{
-    admin_dashboard,
-    change_password,
-    change_password_form,
+    admin::{
+        admin_dashboard,
+        change_password,
+        change_password_form,
+        log_out,
+        publish_newsletter,
+        submit_newsletter_form,
+    },
     confirm,
     health_check,
     home,
-    log_out,
     login,
     login_form,
-    publish_newsletter,
     subscribe,
 };
 
@@ -64,13 +67,14 @@ pub async fn run(
                     .wrap(RejectAnonymousUsers)
                     .route("/dashboard", web::get().to(admin_dashboard))
                     .route("/logout", web::post().to(log_out))
+                    .route("/newsletters", web::get().to(submit_newsletter_form))
+                    .route("/newsletters", web::post().to(publish_newsletter))
                     .route("/password", web::get().to(change_password_form))
                     .route("/password", web::post().to(change_password))
             )
             .route("/health_check", web::get().to(health_check))
             .route("/login", web::get().to(login_form))
             .route("/login", web::post().to(login))
-            .route("/newsletters", web::post().to(publish_newsletter))
             .route("/subscriptions", web::post().to(subscribe))
             .route("/subscriptions/confirm", web::get().to(confirm))
             .app_data(db_pool.clone())
