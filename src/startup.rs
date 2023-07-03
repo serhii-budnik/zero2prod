@@ -20,6 +20,7 @@ use crate::routes::{
     confirm,
     health_check,
     home,
+    log_out,
     login,
     login_form,
     publish_newsletter,
@@ -62,6 +63,7 @@ pub async fn run(
                 web::scope("/admin")
                     .wrap(RejectAnonymousUsers)
                     .route("/dashboard", web::get().to(admin_dashboard))
+                    .route("/logout", web::post().to(log_out))
                     .route("/password", web::get().to(change_password_form))
                     .route("/password", web::post().to(change_password))
             )
