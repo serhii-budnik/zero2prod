@@ -111,6 +111,17 @@ impl TestApp {
             .expect("Failed to execute request.")
     }
 
+    pub async fn user_login(&self) {
+        let (username, password) = self.add_test_user().await;
+
+        let body = serde_json::json!({
+            "username": &username,
+            "password": &password,
+        });
+
+        self.post_login(&body).await;
+    }
+
     pub async fn get_login_html(&self) -> String {
         self.api_client
             .get(&format!("{}/login", &self.address))
@@ -164,6 +175,29 @@ impl TestApp {
             .send()
             .await
             .expect("Failed to execute request.")
+    }
+
+    pub async fn post_publish_newsletter<T>(&self, body: &T) -> reqwest::Response
+    where
+        T: serde::Serialize,
+    {
+        self.api_client
+            .post(&format!("{}/admin/newsletters", &self.address))
+            .form(body)
+            .send()
+            .await
+            .expect("faild to execute request.")
+    }
+
+    pub async fn get_publish_newsletter_html(&self) -> String {
+        self.api_client
+            .get(&format!("{}/admin/newsletters", &self.address))
+            .send()
+            .await
+            .expect("failed to exeucte request.")
+            .text()
+            .await
+            .expect("Failed to get html page")
     }
 }
 
