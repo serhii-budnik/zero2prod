@@ -16,10 +16,8 @@ async fn newsletters_are_not_delivered_to_unconfirmed_subscribers() {
 
     let newsletter_request_body = serde_json::json!({
         "title": "Newsletter title",
-        "content": {
-            "text": "Newsletter body as plain text",
-            "html": "<p>Newsletter body as HTML</p>",
-        }
+        "text_content": "Newsletter body as plain text",
+        "html_content": "<p>Newsletter body as HTML</p>",
     });
 
     let (username, password) = app.add_test_user().await;
@@ -30,7 +28,7 @@ async fn newsletters_are_not_delivered_to_unconfirmed_subscribers() {
 
     app.post_login(&body).await;
 
-    let response = app.post_newsletters(newsletter_request_body).await;
+    let response = app.post_newsletters(&newsletter_request_body).await;
 
     assert_eq!(response.status().as_u16(), 200);
 }
@@ -49,10 +47,8 @@ async fn newsletters_are_delivered_to_confirmed_subscribers() {
 
     let newsletter_request_body = serde_json::json!({
         "title": "Newsletter title",
-        "content": {
-            "text": "Newsletter body as plain text",
-            "html": "<p>Newsletter body as HTML</p>",
-        }
+        "text_content": "Newsletter body as plain text",
+        "html_content": "<p>Newsletter body as HTML</p>",
     });
 
     let (username, password) = app.add_test_user().await;
@@ -62,7 +58,7 @@ async fn newsletters_are_delivered_to_confirmed_subscribers() {
     });
 
     app.post_login(&body).await;
-    let response = app.post_newsletters(newsletter_request_body).await;
+    let response = app.post_newsletters(&newsletter_request_body).await;
 
     assert_eq!(response.status().as_u16(), 200);
 }
@@ -73,10 +69,8 @@ async fn newsletters_returns_400_for_invalid_data() {
     let test_cases = vec![
         (
             serde_json::json!({
-                "content": {
-                    "text": "Newsletter body as plain text",
-                    "html": "<p>Newsletter body as HTML</p>",
-                }
+                "text_content": "Newsletter body as plain text",
+                "html_content": "<p>Newsletter body as HTML</p>",
             }),
             "missing title",
         ),
@@ -94,7 +88,7 @@ async fn newsletters_returns_400_for_invalid_data() {
 
     app.post_login(&body).await;
     for (invalid_body, error_message) in test_cases {
-        let response = app.post_newsletters(invalid_body).await;
+        let response = app.post_newsletters(&invalid_body).await;
         
         assert_eq!(
             400,
@@ -111,10 +105,11 @@ async fn unauthorized_user_is_rejected() {
 
     let body = serde_json::json!({
         "title": "Newsletter title",
-        "content": { "text": "plain text", "html": "<p>HTML</p>" },
+        "text_content": "plain text", 
+        "html_content": "<p>HTML</p>",
     });
 
-    let response = app.post_newsletters(body).await;
+    let response = app.post_newsletters(&body).await;
 
     assert_is_redirect_to(&response, "/login");
 }

@@ -113,6 +113,6 @@ fn verify_password_hash(
             password_candidate.expose_secret().as_bytes(),
             &expected_password_hash,
         );
-    
+
     res.or(Err(ApiError::AuthBasicError))
 }
