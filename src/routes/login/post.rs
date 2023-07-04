@@ -1,8 +1,8 @@
 use crate::authentication::{validate_credentials, Credentials};
 use crate::routes::helpers::ApiError;
 use crate::session_state::TypedSession;
+use crate::utils::see_other;
 
-use actix_web::http::header::LOCATION;
 use actix_web::{web, HttpResponse, error::InternalError};
 use actix_web_flash_messages::FlashMessage;
 use secrecy::Secret;
@@ -45,11 +45,7 @@ pub async fn login(
                 .map_err(|e| login_redirect(ApiError::UnexpectedError(e.into())))?;
 
 
-            Ok(
-                HttpResponse::SeeOther()
-                    .insert_header((LOCATION, "/admin/dashboard"))
-                    .finish()
-            )
+            Ok(see_other("/admin/dashboard"))
         },
         Err(e) => {
             let e = match e {
@@ -64,9 +60,7 @@ pub async fn login(
 
 fn login_redirect(e: ApiError) -> InternalError<ApiError> { 
     FlashMessage::error(e.to_string()).send();
-    let response = HttpResponse::SeeOther()
-        .insert_header((LOCATION, "/login"))
-        .finish();
+    let response = see_other("/login");
 
     InternalError::from_response(e, response)
 }

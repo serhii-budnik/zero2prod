@@ -27,6 +27,16 @@ pub async fn admin_dashboard(
                     </head>
                     <body>
                         <p>Welcome {username}!</p>
+                        <p>Available actions:</p>
+                        <ol>
+                            <li><a href="/admin/newsletters">Send a newsletter issue</a></li>
+                            <li><a href="/admin/password">Change password</a></li>
+                            <li>
+                                <form action="/admin/logout" method="post" name="logoutForm">
+                                    <input type="submit" value="Logout">
+                                </form>
+                            </li>
+                        </ol>
                     </body>
                     </html>
                     "#, 
@@ -37,7 +47,7 @@ pub async fn admin_dashboard(
 }
 
 #[tracing::instrument(name = "Get username", skip(pool))]
-async fn get_username(
+pub async fn get_username(
     user_id: Uuid,
     pool: &PgPool,
 ) -> Result<String, anyhow::Error> {
