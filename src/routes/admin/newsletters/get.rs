@@ -1,16 +1,19 @@
 use actix_web::{http::header::ContentType, HttpResponse};
 use actix_web_flash_messages::IncomingFlashMessages;
 use std::fmt::Write;
+use uuid::Uuid;
 
 use crate::routes::helpers::ApiError;
 
 pub async fn submit_newsletter_form(
     flash_messages: IncomingFlashMessages
 ) -> Result<HttpResponse, ApiError> {
-    let mut msg = String::new();
+    let mut flash_msg = String::new();
     for message in flash_messages.iter() {
-        writeln!(msg, "<p><i>{}</i></p>", message.content()).unwrap()
+        writeln!(flash_msg, "<p><i>{}</i></p>", message.content()).unwrap()
     }
+
+    let idempotency_key = Uuid::new_v4();
 
     let body = 
         format!(
@@ -23,12 +26,22 @@ pub async fn submit_newsletter_form(
             </head>
             <body>
                 {flash_msg}
-                <p>submit newsletter form: under constructions</p>
+
+                <form action="/admin/newsletters" method="post">
+                    <input hidden type="text" name="idempotency_key" value={idempotency_key}>
+                    <lable>Title</lable>
+                    <input type="text" name="title">
+                    <lable>Text</lable>
+                    <input type="text" name="text_content">
+                    <lable>HTML</lable>
+                    <input type="text" name="html_content">
+                    <input type="submit" name="send">
+                </form>
+
                 <a href="/admin/dashboard">&lt;- Back</a>
             </body>
             </html>
-            "#, 
-            flash_msg = msg
+            "#
         );
 
     Ok(
