@@ -6,6 +6,8 @@ use wiremock::MockServer;
 
 use zero2prod::authentication::compute_password_hash;
 use zero2prod::configuration::{get_configuration, DatabaseSettings};
+use zero2prod::email_client::EmailClient;
+use zero2prod::issue_delivery_worker::{try_execute_task, ExecutionOutcome};
 use zero2prod::startup::{Application, get_connection_pool};
 use zero2prod::telemetry::{get_subscriber, init_subscriber};
 
@@ -16,6 +18,7 @@ pub struct TestApp {
     pub inbox_id: String,
     pub port: u16,
     pub api_client: reqwest::Client,
+    pub email_client: EmailClient,
 }
 
 pub struct ConfirmationLinks {
@@ -111,6 +114,17 @@ impl TestApp {
             .expect("Failed to execute request.")
     }
 
+    pub async fn user_login(&self) {
+        let (username, password) = self.add_test_user().await;
+
+        let body = serde_json::json!({
+            "username": &username,
+            "password": &password,
+        });
+
+        self.post_login(&body).await;
+    }
+
     pub async fn get_login_html(&self) -> String {
         self.api_client
             .get(&format!("{}/login", &self.address))
@@ -164,6 +178,39 @@ impl TestApp {
             .send()
             .await
             .expect("Failed to execute request.")
+    }
+
+    pub async fn post_publish_newsletter<T>(&self, body: &T) -> reqwest::Response
+    where
+        T: serde::Serialize,
+    {
+        self.api_client
+            .post(&format!("{}/admin/newsletters", &self.address))
+            .form(body)
+            .send()
+            .await
+            .expect("faild to execute request.")
+    }
+
+    pub async fn get_publish_newsletter_html(&self) -> String {
+        self.api_client
+            .get(&format!("{}/admin/newsletters", &self.address))
+            .send()
+            .await
+            .expect("failed to exeucte request.")
+            .text()
+            .await
+            .expect("Failed to get html page")
+    }
+
+    pub async fn dispatch_all_pending_emails(&self) {
+        loop {
+            let outcome = try_execute_task(&self.db_pool, &self.email_client)
+                .await
+                .unwrap();
+
+            if let ExecutionOutcome::EmptyQueue = outcome { break; }
+        }
     }
 }
 
@@ -233,8 +280,9 @@ pub async fn spawn_app() -> TestApp {
         address,
         api_client,
         db_pool: get_connection_pool(&configuration.database),
-        email_server,
         inbox_id: configuration.email_client.inbox_id.expose_secret().clone(),
+        email_client: configuration.email_client.client(),
+        email_server,
         port: application_port,
     }
 }
