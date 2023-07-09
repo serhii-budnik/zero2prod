@@ -5,7 +5,7 @@ use fake::faker::{internet::en::SafeEmail, name::en::Name};
 use std::time::Duration;
 use uuid::Uuid;
 use wiremock::matchers::{any, method, path};
-use wiremock::{Mock, ResponseTemplate, MockBuilder};
+use wiremock::{Mock, ResponseTemplate};
 
 #[tokio::test]
 async fn newsletters_are_not_delivered_to_unconfirmed_subscribers() {
@@ -251,8 +251,4 @@ async fn create_confirmed_subscriber(app: &TestApp) {
         .unwrap()
         .error_for_status()
         .unwrap();
-}
-
-fn when_sending_an_email(app: &TestApp) -> MockBuilder { 
-    Mock::given(path(format!("/api/send/{}", app.inbox_id))).and(method("POST"))
 }
