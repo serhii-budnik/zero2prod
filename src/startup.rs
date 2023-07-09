@@ -90,19 +90,7 @@ pub async fn run(
 impl Application {
     pub async fn build(configuration: Settings) -> Result<Self, anyhow::Error> {
         let connection_pool = get_connection_pool(&configuration.database);
-
-        let sender_email = configuration
-            .email_client
-            .sender()
-            .expect("Failed to parse sender email address.");
-        let timeout = configuration.email_client.timeout();
-        let email_client = EmailClient::new(
-            configuration.email_client.base_url,
-            sender_email,
-            configuration.email_client.authorization_token,
-            configuration.email_client.inbox_id,
-            timeout
-        );
+        let email_client = configuration.email_client.client();
         let hmac_secret = configuration.application.hmac_secret;
 
         let address = format!("{}:{}", configuration.application.host, configuration.application.port);

@@ -66,6 +66,8 @@ async fn newsletters_are_delivered_to_confirmed_subscribers() {
     app.post_login(&body).await;
     let response = app.post_newsletters(&newsletter_request_body).await;
 
+    app.dispatch_all_pending_emails().await;
+
     assert_is_redirect_to(&response, "/admin/newsletters");
 }
 
@@ -172,6 +174,8 @@ async fn newsletter_creation_is_idempotent() {
     assert!(
         html_page.contains("<p><i>The newsletter issue has been accepted - emails will go out shortly.</i></p>")
     );
+
+    app.dispatch_all_pending_emails().await;
 }
 
 #[tokio::test]
@@ -201,6 +205,8 @@ async fn concurrent_form_submission_is_handled_gracefully() {
 
     assert_eq!(response1.status(), response2.status());
     assert_eq!(response1.text().await.unwrap(), response2.text().await.unwrap());
+
+    app.dispatch_all_pending_emails().await;
 }
 
 #[tokio::test]
@@ -246,6 +252,8 @@ async fn transient_errors_do_not_cause_duplicate_deliveries_on_retries() {
 
     let response = app.post_publish_newsletter(&newsletter_request_body).await;
     assert_eq!(response.status().as_u16(), 303);
+
+    app.dispatch_all_pending_emails().await;
 }
 
 async fn create_unconfirmed_subscriber(app: &TestApp) -> ConfirmationLinks {

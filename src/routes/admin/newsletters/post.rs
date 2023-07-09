@@ -1,13 +1,14 @@
 use crate::authentication::middleware::CurrentUserId;
-use crate::email_client::EmailClient;
 use crate::idempotency::{IdempotencyKey, save_response, try_processing, NextAction};
 use crate::routes::helpers::ApiError;
-use crate::{domain::SubscriberEmail, utils::see_other};
+use crate::utils::see_other;
 
 use actix_web::{web, HttpResponse};
 use actix_web_flash_messages::FlashMessage;
 use anyhow::Context;
 use sqlx::PgPool;
+use sqlx::{Postgres, Transaction};
+use uuid::Uuid;
 
 #[derive(serde::Deserialize)]
 pub struct FormData {
@@ -17,19 +18,14 @@ pub struct FormData {
     idempotency_key: String,
 }
 
-struct ConfirmedSubscriber {
-    email: SubscriberEmail,
-}
-
 #[tracing::instrument(
     name = "Publish a newsletter issue"
-    skip(form, pool, email_client),
+    skip(form, pool),
     fields(username=tracing::field::Empty, user_is=tracing::field::Empty)
 )]
 pub async fn publish_newsletter(
     form: web::Form<FormData>,
     pool: web::Data<PgPool>,
-    email_client: web::Data<EmailClient>,
     user_id: web::ReqData<CurrentUserId>,
 ) -> Result<HttpResponse, ApiError> {
     let FormData { title, text_content, html_content, idempotency_key } = form.0;
@@ -37,7 +33,10 @@ pub async fn publish_newsletter(
     let idempotency_key: Result<IdempotencyKey, anyhow::Error> = idempotency_key.try_into();
     let idempotency_key = idempotency_key.map_err(|e| ApiError::ValidationError(e.to_string()))?;
 
-    let transaction = match try_processing(&pool, &idempotency_key, user_id.0).await.map_err(|e| ApiError::ValidationError(e.to_string()))? {
+    let mut transaction = match try_processing(&pool, &idempotency_key, user_id.0)
+        .await
+        .map_err(|e| ApiError::ValidationError(e.to_string()))? {
+
         NextAction::StartProcessing(t) => t,
         NextAction::ReturnSavedResponse(saved_response) => {
             success_message().send();
@@ -46,27 +45,16 @@ pub async fn publish_newsletter(
         }
     };
 
-    let subscribers = get_confirmed_subscribers(&pool).await?;
+    let issue_id = insert_newsletter_issue(&mut transaction, &title, &text_content, &html_content)
+        .await
+        .context("Failed to store newsletter issue details")
+        .map_err(ApiError::UnexpectedError)?;
 
-    // TODO: don't like this approach. fix it later
-    for subscriber in subscribers {
-        match subscriber {
-            Ok(subscriber) => {
-                email_client
-                    .send_email(&subscriber.email, &title, &html_content, &text_content)
-                    .await
-                    .with_context(|| format!("Failed to send newsletter issue to {:?}", subscriber.email))?;
-            }
-            Err(error) => {
-                tracing::warn!(
-                    error.cause_chain = ?error,
-                    "Skipping a confirmed subscriber. \
-                    Their stored contact details are invalid",
-                );
-            }
-        }
-    };
-
+    enqueue_delivery_tasks(&mut transaction, issue_id)
+        .await
+        .context("Failed to enqueue delivery tasks")
+        .map_err(ApiError::UnexpectedError)?;
+        
     success_message().send();
 
     let response = see_other("/admin/newsletters");
@@ -74,30 +62,59 @@ pub async fn publish_newsletter(
     Ok(response)
 }
 
-fn success_message() -> FlashMessage {
-    FlashMessage::info("The newsletter issue has been accepted - emails will go out shortly.")
-}
-
-#[tracing::instrument(name = "Get confirmed subscribers", skip(pool))]
-async fn get_confirmed_subscribers(
-    pool: &PgPool,
-) -> Result<Vec<Result<ConfirmedSubscriber, anyhow::Error>>, anyhow::Error> {
-    let rows = sqlx::query!(
+#[tracing::instrument(skip_all)]
+async fn insert_newsletter_issue(
+    transaction: &mut Transaction<'_, Postgres>,
+    title: &str,
+    text_content: &str,
+    html_content: &str,
+) -> Result<Uuid, sqlx::Error> {
+    let id = Uuid::new_v4();
+    sqlx::query!(
         r#"
-        SELECT email FROM subscriptions WHERE status = 'confirmed'
+        INSERT INTO newsletter_issues(
+            id,
+            title,
+            text_content,
+            html_content,
+            published_at
+        )
+        VALUES ($1, $2, $3, $4, now())
         "#,
+        id,
+        title,
+        text_content,
+        html_content
     )
-    .fetch_all(pool)
+    .execute(transaction)
     .await?;
 
-    let confirmed_subscribers = rows
-        .into_iter()
-        .map(|r| match SubscriberEmail::parse(r.email) {
-            Ok(email) => Ok(ConfirmedSubscriber { email }),
-            Err(error) => Err(anyhow::anyhow!(error)),
-        })
-        .collect();
+    Ok(id)
+}
 
+#[tracing::instrument(skip_all)]
+async fn enqueue_delivery_tasks(
+    transaction: &mut Transaction<'_, Postgres>,
+    newsletter_issue_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+        INSERT INTO issue_delivery_queue (
+            newsletter_issue_id,
+            subscriber_email
+        )
+        SELECT $1, email
+        FROM subscriptions
+        WHERE status = 'confirmed'
+        "#,
+        newsletter_issue_id,
+    )
+    .execute(transaction)
+    .await?;
 
-    Ok(confirmed_subscribers)
+    Ok(())
+}
+
+fn success_message() -> FlashMessage {
+    FlashMessage::info("The newsletter issue has been accepted - emails will go out shortly.")
 }
