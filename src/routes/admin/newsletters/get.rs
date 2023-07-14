@@ -29,13 +29,34 @@ pub async fn submit_newsletter_form(
 
                 <form action="/admin/newsletters" method="post">
                     <input hidden type="text" name="idempotency_key" value={idempotency_key}>
-                    <lable>Title</lable>
-                    <input type="text" name="title">
-                    <lable>Text</lable>
-                    <input type="text" name="text_content">
-                    <lable>HTML</lable>
-                    <input type="text" name="html_content">
-                    <input type="submit" name="send">
+
+                    <lable>
+                        Title
+                        <input type="text" name="title">
+                    </lable>
+
+                    <lable>
+                        Text content
+                        <input type="text" name="text_content">
+                    </lable>
+
+                    <lable>
+                        HTML content
+                        <input type="text" name="html_content">
+                    </lable>
+
+                    <p>Retry settings (Optional)</p>
+                    <label>
+                        N-retries
+                        <input type="number" name="n_retries" placeholder="20">
+                    </label>
+
+                    <label>
+                        Retry after in seconds
+                        <input type="number" name="execute_after_in_secs">
+                    </label>
+
+                    <button type="submit">Send</button>
                 </form>
 
                 <a href="/admin/dashboard">&lt;- Back</a>
