@@ -31,22 +31,23 @@ impl ErrorType {
     ) -> Self {
         ErrorType::SoftError(
             JobErrorWithRetryConf {
-                job_error: JobError { 
-                    error,
-                    issue_job_info: IssueJobInfo { newsletter_issue_id, subscriber_email },
-                },
+                job_error: JobError::new(error, newsletter_issue_id, subscriber_email),
                 retry_conf: RetryConf { n_retries, execute_after_in_secs }
             }
         )
     }
 
     fn create_hard_error(error: anyhow::Error, newsletter_issue_id: Uuid, subscriber_email: String) -> Self {
-        ErrorType::HardError(
-            JobError { 
-                error,
-                issue_job_info: IssueJobInfo { newsletter_issue_id, subscriber_email },
-            }
-        )
+        ErrorType::HardError(JobError::new(error, newsletter_issue_id, subscriber_email))
+    }
+}
+
+impl JobError { 
+    fn new(error: anyhow::Error, newsletter_issue_id: Uuid, subscriber_email: String) -> Self {
+        Self { 
+            error,
+            issue_job_info: IssueJobInfo { newsletter_issue_id, subscriber_email },
+        }
     }
 }
 
