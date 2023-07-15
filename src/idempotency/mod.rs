@@ -2,4 +2,4 @@ mod key;
 mod persistence;
 
 pub use key::IdempotencyKey;
-pub use persistence::{save_response, get_saved_response, try_processing, NextAction};
+pub use persistence::{save_response, get_saved_response, try_processing, NextAction, remove_stale_idempontecy_keys};

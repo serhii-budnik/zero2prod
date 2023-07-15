@@ -135,3 +135,68 @@ pub async fn get_saved_response(
         Ok(None)
     }
 }
+
+pub async fn remove_stale_idempontecy_keys(pool: &PgPool) -> Result<u64, anyhow::Error> {
+    let rows_affected = sqlx::query!(r#"DELETE FROM idempotency WHERE created_at < now() - interval '10 min'"#)
+        .execute(pool)
+        .await?
+        .rows_affected();
+
+    Ok(rows_affected)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::idempotency::remove_stale_idempontecy_keys;
+
+    use claim::{assert_err, assert_ok};
+    use sqlx::PgPool;
+
+    #[sqlx::test]
+    async fn removes_stale_idempotency_key(pool: PgPool) {
+        sqlx::query!(
+            r#"
+            INSERT INTO idempotency 
+            (user_id, idempotency_key, created_at) 
+            SELECT id, gen_random_uuid(), now() - interval '15 min' FROM users
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let rows_affected = remove_stale_idempontecy_keys(&pool).await.unwrap();
+
+        assert_eq!(rows_affected, 1);
+
+        let record = sqlx::query!(r#"SELECT user_id FROM idempotency"#)
+            .fetch_one(&pool)
+            .await;
+
+        assert_err!(record);
+    }
+
+    #[sqlx::test]
+    async fn does_not_remove_active_idempotency_key(pool: PgPool) {
+        sqlx::query!(
+            r#"
+            INSERT INTO idempotency 
+            (user_id, idempotency_key, created_at) 
+            SELECT id, gen_random_uuid(), now() - interval '5 min' FROM users
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let rows_affected = remove_stale_idempontecy_keys(&pool).await.unwrap();
+
+        assert_eq!(rows_affected, 0);
+
+        let record = sqlx::query!(r#"SELECT user_id FROM idempotency"#)
+            .fetch_one(&pool)
+            .await;
+
+        assert_ok!(record);
+    }
+}
