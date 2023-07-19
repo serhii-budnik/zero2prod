@@ -4,10 +4,10 @@ use validator::validate_email;
 pub struct SubscriberEmail(String);
 
 impl SubscriberEmail {
-    pub fn parse(email: String) -> Result<SubscriberEmail, String> {
+    pub fn parse(email: String) -> Result<SubscriberEmail, (String, String)> {
         if validate_email(&email) { return Ok(Self(email)) }
 
-        Err("email must not be empty.".into())
+        Err(("email must not be empty.".into(), email))
     }
 }
 

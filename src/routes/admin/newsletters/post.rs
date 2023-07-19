@@ -10,12 +10,14 @@ use sqlx::PgPool;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Debug)]
 pub struct FormData {
     title: String,
     text_content: String,
     html_content: String,
     idempotency_key: String,
+    n_retries: Option<String>,
+    execute_after_in_secs: Option<String>,
 }
 
 #[tracing::instrument(
@@ -28,7 +30,11 @@ pub async fn publish_newsletter(
     pool: web::Data<PgPool>,
     user_id: web::ReqData<CurrentUserId>,
 ) -> Result<HttpResponse, ApiError> {
-    let FormData { title, text_content, html_content, idempotency_key } = form.0;
+    // TODO: we can create validation function for incoming data
+    let FormData { title, text_content, html_content, idempotency_key, n_retries, execute_after_in_secs } = form.0;
+
+    let n_retries = n_retries.and_then(|s| s.parse::<u8>().ok());
+    let execute_after_in_secs = execute_after_in_secs.and_then(|s| s.parse::<u32>().ok());
 
     let idempotency_key: Result<IdempotencyKey, anyhow::Error> = idempotency_key.try_into();
     let idempotency_key = idempotency_key.map_err(|e| ApiError::ValidationError(e.to_string()))?;
@@ -50,7 +56,7 @@ pub async fn publish_newsletter(
         .context("Failed to store newsletter issue details")
         .map_err(ApiError::UnexpectedError)?;
 
-    enqueue_delivery_tasks(&mut transaction, issue_id)
+    enqueue_delivery_tasks(&mut transaction, issue_id, n_retries, execute_after_in_secs)
         .await
         .context("Failed to enqueue delivery tasks")
         .map_err(ApiError::UnexpectedError)?;
@@ -96,18 +102,27 @@ async fn insert_newsletter_issue(
 async fn enqueue_delivery_tasks(
     transaction: &mut Transaction<'_, Postgres>,
     newsletter_issue_id: Uuid,
+    n_retries: Option<u8>,
+    execute_after_in_secs: Option<u32>
 ) -> Result<(), sqlx::Error> {
+    let n_retries: i16 = n_retries.and_then(|num| Some(num as i16)).unwrap_or(20);
+    let execute_after_in_secs: Option<i32> = execute_after_in_secs.and_then(|num| Some(num as i32));
+
     sqlx::query!(
         r#"
         INSERT INTO issue_delivery_queue (
             newsletter_issue_id,
-            subscriber_email
+            subscriber_email,
+            n_retries,
+            execute_after_in_secs
         )
-        SELECT $1, email
+        SELECT $1, email, $2, $3
         FROM subscriptions
         WHERE status = 'confirmed'
         "#,
         newsletter_issue_id,
+        n_retries,
+        execute_after_in_secs,
     )
     .execute(transaction)
     .await?;

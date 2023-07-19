@@ -7,7 +7,7 @@ use wiremock::MockServer;
 use zero2prod::authentication::compute_password_hash;
 use zero2prod::configuration::{get_configuration, DatabaseSettings};
 use zero2prod::email_client::EmailClient;
-use zero2prod::issue_delivery_worker::{try_execute_task, ExecutionOutcome};
+use zero2prod::issue_delivery_worker::{try_execute_task, ExecutionOutcome, handle_worker_error};
 use zero2prod::startup::{Application, get_connection_pool};
 use zero2prod::telemetry::{get_subscriber, init_subscriber};
 
@@ -206,10 +206,15 @@ impl TestApp {
     pub async fn dispatch_all_pending_emails(&self) {
         loop {
             let outcome = try_execute_task(&self.db_pool, &self.email_client)
-                .await
-                .unwrap();
+                .await;
 
-            if let ExecutionOutcome::EmptyQueue = outcome { break; }
+            match outcome { 
+                Ok(ExecutionOutcome::EmptyQueue) => break,
+                Ok(ExecutionOutcome::TaskCompleted) => {},
+                Err(error_type) => handle_worker_error(&self.db_pool, error_type)
+                    .await
+                    .expect("Failed to handle worker error"),
+            }
         }
     }
 }

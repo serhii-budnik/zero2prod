@@ -39,6 +39,109 @@ async fn newsletters_are_not_delivered_to_unconfirmed_subscribers() {
 }
 
 #[tokio::test]
+async fn retries_are_exhausted_for_newsletter() {
+    let app = spawn_app().await;
+
+    create_confirmed_subscriber(&app).await;
+
+    Mock::given(path(format!("/api/send/{}", app.inbox_id)))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(3)
+        .mount(&app.email_server)
+        .await;
+
+    let newsletter_request_body = serde_json::json!({
+        "title": "Newsletter title",
+        "text_content": "Newsletter body as plain text",
+        "html_content": "<p>Newsletter body as HTML</p>",
+        "idempotency_key": Uuid::new_v4().to_string(),
+        "n_retries": 3,
+        "execute_after_in_secs": 0,
+    });
+
+    app.user_login().await;
+
+    let response = app.post_newsletters(&newsletter_request_body).await;
+
+    app.dispatch_all_pending_emails().await;
+
+    assert_is_redirect_to(&response, "/admin/newsletters");
+}
+
+#[tokio::test]
+async fn retry_is_not_triggered_immediately() {
+    let app = spawn_app().await;
+
+    create_confirmed_subscriber(&app).await;
+
+    Mock::given(path(format!("/api/send/{}", app.inbox_id)))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(1)
+        .mount(&app.email_server)
+        .await;
+
+    let newsletter_request_body = serde_json::json!({
+        "title": "Newsletter title",
+        "text_content": "Newsletter body as plain text",
+        "html_content": "<p>Newsletter body as HTML</p>",
+        "idempotency_key": Uuid::new_v4().to_string(),
+        "n_retries": 3,
+        "execute_after_in_secs": 60,
+    });
+
+    app.user_login().await;
+
+    let response = app.post_newsletters(&newsletter_request_body).await;
+
+    app.dispatch_all_pending_emails().await;
+
+    assert_is_redirect_to(&response, "/admin/newsletters");
+}
+
+#[tokio::test]
+async fn retry_is_not_triggered_for_invalid_emails() {
+    let app = spawn_app().await;
+    
+    sqlx::query!(
+        r#"
+        INSERT INTO subscriptions 
+        (id, email, name, subscribed_at, status) 
+        VALUES 
+        (gen_random_uuid(), 'me.mail.com', 'me', now(), 'confirmed')
+        "#
+    )
+    .execute(&app.db_pool)
+    .await
+    .expect("Failed to create a subscriber with invalid email");
+
+    Mock::given(path(format!("/api/send/{}", app.inbox_id)))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&app.email_server)
+        .await;
+
+    let newsletter_request_body = serde_json::json!({
+        "title": "Newsletter title",
+        "text_content": "Newsletter body as plain text",
+        "html_content": "<p>Newsletter body as HTML</p>",
+        "idempotency_key": Uuid::new_v4().to_string(),
+        "n_retries": 3,
+        "execute_after_in_secs": 0,
+    });
+
+    app.user_login().await;
+
+    let response = app.post_newsletters(&newsletter_request_body).await;
+
+    app.dispatch_all_pending_emails().await;
+
+    assert_is_redirect_to(&response, "/admin/newsletters");
+}
+
+#[tokio::test]
 async fn newsletters_are_delivered_to_confirmed_subscribers() {
     let app = spawn_app().await;
     create_confirmed_subscriber(&app).await;
@@ -57,13 +160,7 @@ async fn newsletters_are_delivered_to_confirmed_subscribers() {
         "idempotency_key": Uuid::new_v4().to_string(),
     });
 
-    let (username, password) = app.add_test_user().await;
-    let body = serde_json::json!({
-        "username": &username,
-        "password": &password,
-    });
-
-    app.post_login(&body).await;
+    app.user_login().await;
     let response = app.post_newsletters(&newsletter_request_body).await;
 
     app.dispatch_all_pending_emails().await;
